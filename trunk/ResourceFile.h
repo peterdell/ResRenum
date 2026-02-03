@@ -14,13 +14,14 @@ public:
 
 private:
 
-    struct SECTION_INFO {
+    struct SectionInfo {
         LPCTSTR	name;
         UINT	flags;
     };
 
-    // resource sections
-    enum {
+    // Section types
+    enum SectionType {
+        NONE,
         RS_ACCELERATORS,
         RS_BITMAP,
         RS_CURSOR,
@@ -33,10 +34,10 @@ private:
         RS_STRINGTABLE,
         RS_TOOLBAR,
         RS_VERSIONINFO,
-        SECTIONS
     };
-    // section flags
-    enum {
+
+    // Section flags
+    enum SectionFlags {
         SF_NONE = 0x00,
         SF_SINGLE = 0x01,		// single-line (no begin/end pair)
         SF_NAMED = 0x02,		// section identifier is meaningful
@@ -49,7 +50,7 @@ private:
         IN_SECTION,			// processing section contents
     };
 
-    void AddIDStr(const CString& sID);
+    void AddIDStr(const CString& id, const SectionType sectionType);
 };
 
 
@@ -58,15 +59,16 @@ CResourceFile::CResourceFile() {
 
 }
 
-void CResourceFile::AddIDStr(const CString& sID)
+void CResourceFile::AddIDStr(const CString& id, const SectionType sectionType)
 {
-    idMap.SetAt(sID, 0);
+    idMap.SetAt(id, 0);
 }
 
 void CResourceFile::ReadResourceIDs(const CString& filePath)
 {
 
-    static const SECTION_INFO SecInfo[SECTIONS] = {
+    static const SectionInfo SecInfo[] = {
+        {_T("NONE"),	        SF_NONE},
         {_T("ACCELERATORS"),	SF_NAMED},
         {_T("BITMAP"),			SF_SINGLE},
         {_T("CURSOR"),			SF_SINGLE},
@@ -88,7 +90,7 @@ void CResourceFile::ReadResourceIDs(const CString& filePath)
     CStdioFile inputFile(inputFilePtr);
     CString	line;
     ParseState parseState = ParseState::FIND_SECTION;
-    int	currentSectionType = 0;
+    auto currentSectionType = SectionType::NONE;
     while (inputFile.ReadString(line)) {
         switch (parseState) {
         case ParseState::FIND_BEGIN:
@@ -114,7 +116,7 @@ void CResourceFile::ReadResourceIDs(const CString& filePath)
                 if (sID.IsEmpty()) {
                     break;
                 }
-                AddIDStr(sID);
+                AddIDStr(sID, currentSectionType);
             }
             break;
             case RS_DIALOG:
@@ -150,7 +152,7 @@ void CResourceFile::ReadResourceIDs(const CString& filePath)
                     if (sID.IsEmpty()) {
                         break;
                     }
-                    AddIDStr(sID);
+                    AddIDStr(sID, currentSectionType);
                 }
                 else {	// ID is second parameter; first is caption
                     int	iPos = 0;
@@ -182,7 +184,7 @@ void CResourceFile::ReadResourceIDs(const CString& filePath)
                         // ignore static controls
                         break;
                     }
-                    AddIDStr(sID);
+                    AddIDStr(sID, currentSectionType);
                 }
             }
             break;
@@ -201,7 +203,7 @@ void CResourceFile::ReadResourceIDs(const CString& filePath)
                 if (sID.IsEmpty()) {
                     break;
                 }
-                AddIDStr(sID);
+                AddIDStr(sID, currentSectionType);
             }
             break;
             case RS_STRINGTABLE:
@@ -211,7 +213,7 @@ void CResourceFile::ReadResourceIDs(const CString& filePath)
                 if (sID.IsEmpty() || sID[0] == '"') {
                     break;
                 }
-                AddIDStr(sID);
+                AddIDStr(sID, currentSectionType);
             }
             break;
             case RS_TOOLBAR:
@@ -225,7 +227,7 @@ void CResourceFile::ReadResourceIDs(const CString& filePath)
                 if (sID.IsEmpty()) {
                     break;
                 }
-                AddIDStr(sID);
+                AddIDStr(sID, currentSectionType);
             }
             break;
             }
@@ -250,24 +252,26 @@ void CResourceFile::ReadResourceIDs(const CString& filePath)
             if (sTag.IsEmpty()) {
                 continue;
             }
-            int	sectionType;
-            for (sectionType = 0; sectionType < SECTIONS; sectionType++) {
+            int sectionType;
+            bool found = false;
+            for (sectionType = (int)RS_ACCELERATORS; sectionType <= (int)RS_VERSIONINFO; sectionType++) {
                 if (sTag == SecInfo[sectionType].name) {
+                    found = true;
                     break;
                 }
             }
-            if (sectionType >= SECTIONS) {
+            if (!found) {
                 // if unknown section
                 continue;
             }
             if (SecInfo[sectionType].flags & SF_SINGLE) {	// if single line
-                AddIDStr(sID);
+                AddIDStr(sID, currentSectionType);
             }
             else {	// proper section with begin/end pair
                 if (SecInfo[sectionType].flags & SF_NAMED) {
-                    AddIDStr(sID);
+                    AddIDStr(sID, currentSectionType);
                 }
-                currentSectionType = sectionType;
+                currentSectionType = (SectionType)sectionType;
                 parseState = ParseState::FIND_BEGIN;	// find start of section
             }
         }
