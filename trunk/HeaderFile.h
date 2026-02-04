@@ -7,8 +7,8 @@ class CResourceFile;
 
 class CDefine {
 public:
-    CString	name;
-    UINT	value;
+    CString	name = "";
+    UINT	value = 0;
 
     CString GetPrefix() const;
     CString GetSectionPrefix() const;
