@@ -103,23 +103,23 @@ int CHeaderFile::SortCompareFunc(const void* p1, const void* p2)
 
 bool CHeaderFile::RenumberResourceHeader(LPCTSTR szSrcPath, LPCTSTR szDstPath, const CResourceFile& resourceFile)
 {
-    CString	sAppName;
-    CArray<CDefine, CDefine&> aDef;
-    int	iDef, iRes;
-    int nDefs = 0;
+    CString	appName;
+    CArray<CDefine, CDefine&> definesArray;
+    int	defineIndex, resourceIndex;
+    int defineCount = 0;
     FILE* pfIn;
     if (_tfopen_s(&pfIn, szSrcPath, _T("rt, ccs=UNICODE"))) {
         CFileException::ThrowErrno(errno, szSrcPath);
     }
-    CStdioFile fIn(pfIn);
+    CStdioFile inputFile(pfIn);
     CString	line;
-    while (fIn.ReadString(line)) {
+    while (inputFile.ReadString(line)) {
         // get application name from resource.h file
         static const TCHAR USED_BY[] = _T("Used by ");
         int	iPos = line.Find(USED_BY);
         if (iPos >= 0) {
             iPos += _countof(USED_BY) - 1;
-            sAppName = Tokenize(line, _T(" "), iPos);
+            appName = Tokenize(line, _T(" "), iPos);
             continue;
         }
         static const TCHAR DEFINE[] = _T("#define");
@@ -137,17 +137,18 @@ bool CHeaderFile::RenumberResourceHeader(LPCTSTR szSrcPath, LPCTSTR szDstPath, c
                 // skip APS lines
                 continue;
             }
-            CResource* resource;
+            CResource* resource = nullptr;
             if (resourceFile.idMap.GetCount() && !resourceFile.idMap.Lookup(sName, resource)) {
                 // JAC! Do not delete because the detection of the IDs is flawed
                 //  _tprintf(_T("deleted %s\n"), sName);
                 //  continue;
             }
-            for (iDef = 0; iDef < nDefs; iDef++) {	// find symbol name in list
-                if (aDef[iDef].name == sName)
+            for (defineIndex = 0; defineIndex < defineCount; defineIndex++) {	// find symbol name in list
+                if (definesArray[defineIndex].name == sName) {
                     break;
+                }
             }
-            if (iDef >= nDefs) {	// if not found
+            if (defineIndex >= defineCount) {	// if not found
                 CDefine def;
                 def.name = sName;
                 if (sVal.Find('x')) {
@@ -156,93 +157,93 @@ bool CHeaderFile::RenumberResourceHeader(LPCTSTR szSrcPath, LPCTSTR szDstPath, c
                 else {
                     def.value = _ttoi(sVal);
                 }
-                aDef.Add(def);
-                nDefs++;
+                definesArray.Add(def);
+                defineCount++;
             }
         }
     }
-    fIn.Close();
-    if (!nDefs) {
+    inputFile.Close();
+    if (!defineCount) {
         // if no definitions found
         return false;
     }
 
     UINT	nNextSymed = NEXT_SYMED;
-    UINT	nNextControl = NEXT_CONTROL;
+    UINT	nextControlID = NEXT_CONTROL;
     UINT	nNextCommand = NEXT_COMMAND;
-    UINT	nNextResource = NEXT_RESOURCE;
+    UINT	nextResourceID = NEXT_RESOURCE;
     UINT	nSingleWordIDs = RESERVED_IDS + 1;
 
     // Sort define array by ID
-    qsort(aDef.GetData(), nDefs, sizeof(CDefine), SortCompareFunc);
+    qsort(definesArray.GetData(), defineCount, sizeof(CDefine), SortCompareFunc);
 
     // First renumber IDs without '_'
-    for (iDef = 0; iDef < nDefs; iDef++) {
-        if (aDef[iDef].GetPrefix().IsEmpty()) {
+    for (defineIndex = 0; defineIndex < defineCount; defineIndex++) {
+        if (definesArray[defineIndex].GetPrefix().IsEmpty()) {
             break;
         }
-        aDef[iDef].value = nSingleWordIDs;
+        definesArray[defineIndex].value = nSingleWordIDs;
         nSingleWordIDs++;
     }
 
     // Check resource start
-    if (nNextResource < nSingleWordIDs) {
-        nNextResource = nSingleWordIDs;
+    if (nextResourceID < nSingleWordIDs) {
+        nextResourceID = nSingleWordIDs;
     }
 
     // renumber resources in first section
-    for (iDef = 0; iDef < nDefs; iDef++) {
-        for (iRes = RIT_APP; iRes <= RIT_MENU; iRes++)
-            if (HasPrefix(aDef[iDef].name, szPrefix[iRes])) {
-                aDef[iDef].value = nNextResource++;
+    for (defineIndex = 0; defineIndex < defineCount; defineIndex++) {
+        for (resourceIndex = RIT_APP; resourceIndex <= RIT_MENU; resourceIndex++)
+            if (HasPrefix(definesArray[defineIndex].name, szPrefix[resourceIndex])) {
+                definesArray[defineIndex].value = nextResourceID++;
             }
     }
     // start strings on next hundred
-    nNextResource = (nNextResource / 100 + 1) * 100;
+    nextResourceID = (nextResourceID / 100 + 1) * 100;
     // renumber string resources
-    for (iDef = 0; iDef < nDefs; iDef++) {
-        for (iRes = RIT_STRING; iRes <= RIT_STRING_ALT; iRes++) {
-            if (HasPrefix(aDef[iDef].name, szPrefix[iRes]))
-                aDef[iDef].value = nNextResource++;
+    for (defineIndex = 0; defineIndex < defineCount; defineIndex++) {
+        for (resourceIndex = RIT_STRING; resourceIndex <= RIT_STRING_ALT; resourceIndex++) {
+            if (HasPrefix(definesArray[defineIndex].name, szPrefix[resourceIndex]))
+                definesArray[defineIndex].value = nextResourceID++;
         }
     }
     // start controls on next thousand
-    if (nNextControl < nNextResource) {
-        nNextControl = (nNextControl / 1000 + 1) * 1000;
+    if (nextControlID < nextResourceID) {
+        nextControlID = (nextControlID / 1000 + 1) * 1000;
     }
     // renumber controls
-    for (iDef = 0; iDef < nDefs; iDef++) {
-        if (HasPrefix(aDef[iDef].name, szPrefix[RIT_CONTROL]))
-            aDef[iDef].value = nNextControl++;
+    for (defineIndex = 0; defineIndex < defineCount; defineIndex++) {
+        if (HasPrefix(definesArray[defineIndex].name, szPrefix[RIT_CONTROL]))
+            definesArray[defineIndex].value = nextControlID++;
     }
     // renumber commands
-    for (iDef = 0; iDef < nDefs; iDef++) {
-        if (HasPrefix(aDef[iDef].name, szPrefix[RIT_COMMAND]))
-            aDef[iDef].value = nNextCommand++;
+    for (defineIndex = 0; defineIndex < defineCount; defineIndex++) {
+        if (HasPrefix(definesArray[defineIndex].name, szPrefix[RIT_COMMAND]))
+            definesArray[defineIndex].value = nNextCommand++;
     }
     // Create new resource file
-    CStdioFile	fOut(szDstPath, CFile::modeWrite | CFile::modeCreate);
-    fOut.WriteString(
+    CStdioFile outputFile(szDstPath, CFile::modeWrite | CFile::modeCreate);
+    outputFile.WriteString(
         _T("//{{NO_DEPENDENCIES}}\n")
         _T("// Microsoft Developer Studio generated include file.\n"));
-    line.Format(_T("// Used by %s\n"), sAppName);
-    fOut.WriteString(line);
-    fOut.WriteString(_T("//\n"));
+    line.Format(_T("// Used by %s\n"), appName);
+    outputFile.WriteString(line);
+    outputFile.WriteString(_T("//\n"));
     CString lastPrefix;
     CString lastSectionPrefix;
-    for (iDef = 0; iDef < nDefs; iDef++) {
-        const CDefine& def = aDef[iDef];
+    for (defineIndex = 0; defineIndex < defineCount; defineIndex++) {
+        const auto& def = definesArray[defineIndex];
         auto prefix = def.GetPrefix();
         if (!prefix.IsEmpty() && (prefix != lastPrefix)) {
             lastPrefix = prefix;
-            fOut.WriteString("\n# Prefix " + lastPrefix + "\n\n");
+            outputFile.WriteString("\n# Prefix " + lastPrefix + "\n\n");
         }
         else {
             if (lastPrefix == "ID") {
                 auto sectionPrefix = def.GetSectionPrefix();
                 if (!sectionPrefix.IsEmpty() && sectionPrefix != lastSectionPrefix) {
                     lastSectionPrefix = sectionPrefix;
-                    fOut.WriteString("\n# Section " + lastSectionPrefix + "\n\n");
+                    outputFile.WriteString("\n# Section " + lastSectionPrefix + "\n\n");
                 }
             }
         }
@@ -252,25 +253,25 @@ bool CHeaderFile::RenumberResourceHeader(LPCTSTR szSrcPath, LPCTSTR szDstPath, c
         else {
             line.Format(_T("#define %-31s %u\n"), def.name, def.value);
         }
-        fOut.WriteString(line);
+        outputFile.WriteString(line);
     }
-    fOut.WriteString(
+    outputFile.WriteString(
         _T("\n")
         _T("// Next default values for new objects\n")
         _T("//\n")
         _T("#ifdef APSTUDIO_INVOKED\n")
         _T("#ifndef APSTUDIO_READONLY_SYMBOLS\n"));
     line.Format(_T("#define %-31s %u\n"), _T("_APS_3D_CONTROLS"), 1);
-    fOut.WriteString(line);
-    line.Format(_T("#define %-31s %u\n"), _T("_APS_NEXT_RESOURCE_VALUE"), nNextResource);
-    fOut.WriteString(line);
+    outputFile.WriteString(line);
+    line.Format(_T("#define %-31s %u\n"), _T("_APS_NEXT_RESOURCE_VALUE"), nextResourceID);
+    outputFile.WriteString(line);
     line.Format(_T("#define %-31s %u\n"), _T("_APS_NEXT_COMMAND_VALUE"), nNextCommand);
-    fOut.WriteString(line);
-    line.Format(_T("#define %-31s %u\n"), _T("_APS_NEXT_CONTROL_VALUE"), nNextControl);
-    fOut.WriteString(line);
+    outputFile.WriteString(line);
+    line.Format(_T("#define %-31s %u\n"), _T("_APS_NEXT_CONTROL_VALUE"), nextControlID);
+    outputFile.WriteString(line);
     line.Format(_T("#define %-31s %u\n"), _T("_APS_NEXT_SYMED_VALUE"), nNextSymed);
-    fOut.WriteString(line);
-    fOut.WriteString(
+    outputFile.WriteString(line);
+    outputFile.WriteString(
         _T("#endif\n")
         _T("#endif\n"));
     return true;
